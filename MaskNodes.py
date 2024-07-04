@@ -288,6 +288,11 @@ class MaskInvert:
             mask = mask.bool()
             result = ~mask
             result = result.to(original_dtype)
+        elif isinstance(mask, torch.Tensor) and mask.dim() == 2:
+            original_dtype = mask.dtype
+            mask = mask.bool()
+            result = ~mask
+            result = result.unsqueeze(0).to(original_dtype)
         elif isinstance(mask, list):
             result = []
             for _mask in mask:
