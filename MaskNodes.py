@@ -127,6 +127,66 @@ class MaskSelectionMinSize:
         else:
             raise ValueError("mask is not list or tensor", mask.shape, type(mask))
         return (result,)
+class MaskSelectionMaxCountours:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mask": ("MASK",),
+            },
+        }
+
+    RETURN_TYPES = ("MASK",)
+    RETURN_NAMES = ("mask",)
+    FUNCTION = "selection"
+    CATEGORY = "mask"
+
+    def selection(self, mask):
+        # print("selection", mask, isinstance(mask, Iterable), mask.shape)
+        if(not isinstance(mask, Iterable)):
+            raise ValueError("mask is not iterable", mask.shape, type(mask))
+        elif(len(mask) == 0):
+            return mask
+        if isinstance(mask, torch.Tensor) and mask.dim() == 3: #batch, h, w
+            max_countour = 0
+            max_countour_area = 0
+            max_index = 0
+            for index, _mask in enumerate(mask):
+                _, countours, _ = cv2.findContours(_mask.cpu().numpy().astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                for countour in countours:
+                    area = cv2.contourArea(countour)
+                    if area > max_countour_area:
+                        max_countour_area = area
+                        max_countour = countour
+                        max_index = index
+            print(mask[max_index])
+            h, w = mask[0].shape[1], mask[0].shape[2]
+            result = np.zeros((h, w), dtype=np.uint8)
+            cv2.drawContours(result, max_countour, -1, 255, -1)
+            result = torch.tensor(result).unsqueeze(0)
+            print(result)
+        elif isinstance(mask, list): # 判断 mask 是否是数组
+            max_countour = 0
+            max_countour_area = 0
+            max_index = 0
+            for index, _mask in enumerate(mask):
+                _, countours, _ = cv2.findContours(_mask.cpu().numpy().astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                for countour in countours:
+                    area = cv2.contourArea(countour)
+                    if area > max_countour_area:
+                        max_countour_area = area
+                        max_countour = countour
+                        max_index = index
+            h, w = mask[0].shape[1], mask[0].shape[2]
+            result = np.zeros((h, w), dtype=np.uint8)
+            cv2.drawContours(result, max_countour, -1, 255, -1)
+            result = torch.tensor(result).unsqueeze(0)
+        else:
+            raise ValueError("mask is not list or tensor", mask.shape, type(mask))
+        return (result,)
 
 class MaskOrMask:
     def __init__(self):
@@ -309,6 +369,7 @@ NODE_CLASS_MAPPINGS = {
     "Mask Selection By Index (endman100)": MaskSelectionByIndex,
     "Mask Selection Max Size (endman100)": MaskSelectionMaxSize,
     "Mask Selection Min Size (endman100)": MaskSelectionMinSize,
+    "Mask Selection Max Countours (endman100)": MaskSelectionMaxCountours,
     "Mask Or Mask (endman100)": MaskOrMask,
     "Mask And Mask (endman100)": MaskAndMask,
     "Mask Sub Mask (endman100)": MaskSubMask,
@@ -319,6 +380,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Mask Selection By Index (endman100)": "Mask Selection By Index (endman100)",
     "Mask Selection Max Size (endman100)": "Mask Selection Max Size (endman100)",
     "Mask Selection Min Size (endman100)": "Mask Selection Min Size (endman100)",
+    "Mask Selection Max Countours (endman100)": "Mask Selection Max Countours (endman100)",
     "Mask Or Mask (endman100)": "Mask Or Mask (endman100)",
     "Mask And Mask (endman100)": "Mask And Mask (endman100)",
     "Mask Sub Mask (endman100)": "Mask Sub Mask (endman100)",
