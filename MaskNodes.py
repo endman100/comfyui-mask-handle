@@ -145,44 +145,47 @@ class MaskSelectionMaxCountours:
     CATEGORY = "mask"
 
     def selection(self, mask):
-        # print("selection", mask, isinstance(mask, Iterable), mask.shape)
         if(not isinstance(mask, Iterable)):
             raise ValueError("mask is not iterable", mask.shape, type(mask))
         elif(len(mask) == 0):
             return mask
         if isinstance(mask, torch.Tensor) and mask.dim() == 3: #batch, h, w
-            max_countour = 0
+            max_countour = None
             max_countour_area = 0
-            max_index = 0
             for index, _mask in enumerate(mask):
-                _, countours, _ = cv2.findContours(_mask.cpu().numpy().astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                _mask = (_mask.cpu().numpy()*255).astype(np.uint8)
+                countours, _ = cv2.findContours(_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 for countour in countours:
                     area = cv2.contourArea(countour)
                     if area > max_countour_area:
                         max_countour_area = area
                         max_countour = countour
-                        max_index = index
-            print(mask[max_index])
-            h, w = mask[0].shape[1], mask[0].shape[2]
+            if max_countour is None:
+                print("can't find any countour is None")
+                return mask
+
+            h, w = mask.shape[1], mask.shape[2]
             result = np.zeros((h, w), dtype=np.uint8)
-            cv2.drawContours(result, max_countour, -1, 255, -1)
+            cv2.drawContours(result, [max_countour], -1, 255, -1)
             result = torch.tensor(result).unsqueeze(0)
-            print(result)
         elif isinstance(mask, list): # 判断 mask 是否是数组
-            max_countour = 0
+            max_countour = None
             max_countour_area = 0
-            max_index = 0
             for index, _mask in enumerate(mask):
-                _, countours, _ = cv2.findContours(_mask.cpu().numpy().astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                _mask = (_mask.cpu().numpy()*255).astype(np.uint8)
+                countours, _ = cv2.findContours(_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 for countour in countours:
                     area = cv2.contourArea(countour)
                     if area > max_countour_area:
                         max_countour_area = area
                         max_countour = countour
-                        max_index = index
-            h, w = mask[0].shape[1], mask[0].shape[2]
+            if max_countour is None:
+                print("can't find any countour is None")
+                return mask
+
+            h, w = mask.shape[1], mask.shape[2]
             result = np.zeros((h, w), dtype=np.uint8)
-            cv2.drawContours(result, max_countour, -1, 255, -1)
+            cv2.drawContours(result, [max_countour], -1, 255, -1)
             result = torch.tensor(result).unsqueeze(0)
         else:
             raise ValueError("mask is not list or tensor", mask.shape, type(mask))
@@ -208,6 +211,11 @@ class MaskOrMask:
     CATEGORY = "mask"
 
     def method(self, mask1, mask2, merge_all):
+        if (isinstance(mask1, torch.Tensor) and mask1.dim() == 2):
+            mask1 = mask1.unsqueeze(0)
+        if (isinstance(mask2, torch.Tensor) and mask2.dim() == 2):
+            mask2 = mask2.unsqueeze(0)
+
         if (isinstance(mask1, torch.Tensor) and mask1.dim() == 3 and 
             isinstance(mask2, torch.Tensor) and mask2.dim() == 3):
             original_dtype = mask1.dtype
