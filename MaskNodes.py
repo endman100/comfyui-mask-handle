@@ -427,9 +427,56 @@ class FillMaskArea:
             base_color[:,:,1] = g / 255.0
             base_color[:,:,2] = b / 255.0
 
-            _mask = _mask < 0.5
-            _mask = _mask.squeeze(-1)
-            image[index][_mask] = base_color[_mask]
+            _mask = _mask.repeat(1, 1, 3)
+            image[index] = image[index] * _mask  + base_color * (1 - _mask)
+        return (image,)
+    
+class AddMask():
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "mask": ("MASK",)
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION = "method"
+    CATEGORY = "mask"
+
+    def method(self, image, mask):
+        print(f"FillMaskArea image.shape:{image.shape}, mask.shape:{mask.shape})")
+
+        if(isinstance(image, torch.Tensor)):
+            image = image.clone()
+        elif(isinstance(image, list)):
+            image = [img.clone() for img in image]        
+        if(isinstance(mask, torch.Tensor)):
+            mask = mask.clone()
+        elif(isinstance(mask, list)):
+            mask = [m.clone() for m in mask]
+            
+        if isinstance(mask, torch.Tensor) and mask.dim() == 3:
+            if(mask.shape[-1] != 1):
+                mask = mask.unsqueeze(-1)
+            else:
+                mask = mask.unsqueeze(0)
+        elif isinstance(mask, torch.Tensor) and mask.dim() == 2:
+            mask = mask.unsqueeze(-1).unsqueeze(0)
+
+        if isinstance(image, torch.Tensor) and image.dim() == 3:
+            image = image.unsqueeze(0)
+        
+        #cover bgr to bgra
+        if image.shape[-1] == 3:
+            image = torch.cat([image, torch.ones_like(image[...,0:1])], dim=-1)
+        for index, _mask in enumerate(mask):
+            image[index][:,:,3] = _mask.squeeze(-1)
         return (image,)
 
 NODE_CLASS_MAPPINGS = {
@@ -441,7 +488,8 @@ NODE_CLASS_MAPPINGS = {
     "Mask And Mask (endman100)": MaskAndMask,
     "Mask Sub Mask (endman100)": MaskSubMask,
     "Mask Invert (endman100)": MaskInvert,
-    "Fill Mask Area (endman100)": FillMaskArea
+    "Fill Mask Area (endman100)": FillMaskArea,
+    "Add Mask (endman100)": AddMask
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -453,5 +501,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Mask And Mask (endman100)": "Mask And Mask (endman100)",
     "Mask Sub Mask (endman100)": "Mask Sub Mask (endman100)",
     "Mask Invert (endman100)": "Mask Invert (endman100)",
-    "Fill Mask Area (endman100)": "Fill Mask Area (endman100)"
+    "Fill Mask Area (endman100)": "Fill Mask Area (endman100)",
+    "Add Mask (endman100)": "Add Mask (endman100)"
 }
