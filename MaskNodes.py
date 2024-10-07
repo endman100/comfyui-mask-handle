@@ -219,11 +219,12 @@ class MaskOrMask:
         if (isinstance(mask1, torch.Tensor) and mask1.dim() == 3 and 
             isinstance(mask2, torch.Tensor) and mask2.dim() == 3):
             original_dtype = mask1.dtype
-            mask1 = mask1.bool()
-            mask2 = mask2.bool()
+            print("mask1", mask1, torch.max(mask1), torch.min(mask1))
+            mask1 = mask1 > 0.5
+            mask2 = mask2 > 0.5
             result = torch.logical_or(mask1, mask2)
             if(merge_all):
-                result = torch.any(result, dim=0)
+                result = torch.any(result, dim=0).unsqueeze(0)
             result = result.to(original_dtype)
 
         elif isinstance(mask1, list) and isinstance(mask2, list):
@@ -265,8 +266,8 @@ class MaskAndMask:
         if (isinstance(mask1, torch.Tensor) and mask1.dim() == 3 and 
             isinstance(mask2, torch.Tensor) and mask2.dim() == 3):
             original_dtype = mask1.dtype
-            mask1 = mask1.bool()
-            mask2 = mask2.bool()
+            mask1 = mask1 > 0.5
+            mask2 = mask2 > 0.5
             result = torch.logical_and(mask1, mask2)
             if(merge_all):
                 result = torch.all(result, dim=0)
@@ -276,8 +277,8 @@ class MaskAndMask:
             result = []
             for _mask1, _mask2 in zip(mask1, mask2):
                 original_dtype = _mask1.dtype
-                _mask1 = _mask1.bool()
-                _mask2 = _mask2.bool()
+                _mask1 = _mask1 > 0.5
+                _mask2 = _mask2 > 0.5
                 _result = torch.logical_and(_mask1, _mask2)
                 result.append(_result)
 
@@ -310,8 +311,8 @@ class MaskSubMask:
         if (isinstance(mask1, torch.Tensor) and mask1.dim() == 3 and 
             isinstance(mask2, torch.Tensor) and mask2.dim() == 3):
             original_dtype = mask1.dtype
-            mask1 = mask1.bool()
-            mask2 = mask2.bool()
+            mask1 = mask1 > 0.5
+            mask2 = mask2 > 0.5
             result = torch.logical_and(mask1, ~mask2)
             if(merge_all):
                 result = torch.all(result, dim=0)
@@ -321,8 +322,8 @@ class MaskSubMask:
             result = []
             for _mask1, _mask2 in zip(mask1, mask2):
                 original_dtype = _mask1.dtype
-                _mask1 = _mask1.bool()
-                _mask2 = _mask2.bool()
+                _mask1 = _mask1 > 0.5
+                _mask2 = _mask2 > 0.5
                 _result = torch.logical_and(_mask1, ~_mask2)
                 result.append(_result)
 
@@ -353,25 +354,83 @@ class MaskInvert:
     def method(self, mask):
         if isinstance(mask, torch.Tensor) and mask.dim() == 3:
             original_dtype = mask.dtype
-            mask = mask.bool()
+            mask = mask > 0.5
             result = ~mask
             result = result.to(original_dtype)
         elif isinstance(mask, torch.Tensor) and mask.dim() == 2:
             original_dtype = mask.dtype
-            mask = mask.bool()
+            mask = mask > 0.5
             result = ~mask
             result = result.unsqueeze(0).to(original_dtype)
         elif isinstance(mask, list):
             result = []
             for _mask in mask:
                 original_dtype = _mask.dtype
-                _mask = _mask.bool()
+                _mask = _mask > 0.5
                 _result = ~_mask
                 result.append(_result)
             result = [ _result.to(original_dtype) for _result in result]
         else:
             raise ValueError("mask is not list or tensor", mask.shape, type(mask))
         return (result,)
+
+class FillMaskArea:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "mask": ("MASK",),
+                "r": ("INT", {"default": 0, "min": 0, "max": 255, "step": 1}),
+                "g": ("INT", {"default": 0, "min": 0, "max": 255, "step": 1}),
+                "b": ("INT", {"default": 0, "min": 0, "max": 255, "step": 1}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION = "method"
+    CATEGORY = "mask"
+
+    def method(self, image, mask, r=0, g=0, b=0):
+        print(f"FillMaskArea image.shape:{image.shape}, mask.shape:{mask.shape}, r:{r}, g:{g}, b:{b}")
+        # print(f"FillMaskArea image:{image}, max:{torch.max(image)}, min:{torch.min(image)}")
+        # print(f"FillMaskArea mask:{mask}, max:{torch.max(mask)}, min:{torch.min(mask)}")
+        if(isinstance(image, torch.Tensor)):
+            image = image.clone()
+        elif(isinstance(image, list)):
+            image = [img.clone() for img in image]
+        
+        if(isinstance(mask, torch.Tensor)):
+            mask = mask.clone()
+        elif(isinstance(mask, list)):
+            mask = [m.clone() for m in mask]
+            
+        
+        if isinstance(mask, torch.Tensor) and mask.dim() == 3:
+            if(mask.shape[-1] != 1):
+                mask = mask.unsqueeze(-1)
+            else:
+                mask = mask.unsqueeze(0)
+        if isinstance(mask, torch.Tensor) and mask.dim() == 2:
+            mask = mask.unsqueeze(-1).unsqueeze(0)
+        if isinstance(image, torch.Tensor) and image.dim() == 3:
+            image = image.unsqueeze(0)
+
+        for index, _mask in enumerate(mask):
+            h, w = _mask.shape[0], _mask.shape[1]
+            base_color = torch.zeros((h, w, 3), dtype=torch.float32)
+            base_color[:,:,0] = r / 255.0
+            base_color[:,:,1] = g / 255.0
+            base_color[:,:,2] = b / 255.0
+
+            _mask = _mask < 0.5
+            _mask = _mask.squeeze(-1)
+            image[index][_mask] = base_color[_mask]
+        return (image,)
 
 NODE_CLASS_MAPPINGS = {
     "Mask Selection By Index (endman100)": MaskSelectionByIndex,
@@ -381,7 +440,8 @@ NODE_CLASS_MAPPINGS = {
     "Mask Or Mask (endman100)": MaskOrMask,
     "Mask And Mask (endman100)": MaskAndMask,
     "Mask Sub Mask (endman100)": MaskSubMask,
-    "Mask Invert (endman100)": MaskInvert
+    "Mask Invert (endman100)": MaskInvert,
+    "Fill Mask Area (endman100)": FillMaskArea
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -392,5 +452,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Mask Or Mask (endman100)": "Mask Or Mask (endman100)",
     "Mask And Mask (endman100)": "Mask And Mask (endman100)",
     "Mask Sub Mask (endman100)": "Mask Sub Mask (endman100)",
-    "Mask Invert (endman100)": "Mask Invert (endman100)"
+    "Mask Invert (endman100)": "Mask Invert (endman100)",
+    "Fill Mask Area (endman100)": "Fill Mask Area (endman100)"
 }
