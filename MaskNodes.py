@@ -491,7 +491,7 @@ class MaskToRegion():
             },
         }
     
-    RETURN_TYPES = ("int", "int", "int", "int", "IMAGE")
+    RETURN_TYPES = ("INT", "INT", "INT", "INT", "IMAGE")
     RETURN_NAMES = ("width", "height", "x", "y", "preview region image")
     FUNCTION = "method"
     CATEGORY = "mask"
