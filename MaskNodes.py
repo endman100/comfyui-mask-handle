@@ -479,6 +479,68 @@ class AddMask():
             image[index][:,:,3] = _mask.squeeze(-1)
         return (image,)
 
+class MaskToRegion():
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mask": ("MASK",)
+            },
+        }
+    
+    RETURN_TYPES = ("int", "int", "int", "int", "IMAGE")
+    RETURN_NAMES = ("width", "height", "x", "y", "preview region image")
+    FUNCTION = "method"
+    CATEGORY = "mask"
+
+    def method(self, mask): #找到最大輪廓並回傳其外接矩形 find the largest contour and return its bounding box
+        #複製mask避免改變原始資料 copy mask to avoid changing the original data
+        if(isinstance(mask, torch.Tensor)):
+            mask = mask.clone()
+        elif(isinstance(mask, list)):
+            mask = [m.clone() for m in mask]
+
+        #校正mask維度 correct mask dimension
+        if isinstance(mask, torch.Tensor) and mask.dim() == 3:
+            if(mask.shape[-1] != 1):
+                mask = mask.unsqueeze(-1)
+            else:
+                mask = mask.unsqueeze(0)
+        elif isinstance(mask, torch.Tensor) and mask.dim() == 2:
+            mask = mask.unsqueeze(-1).unsqueeze(0)
+
+        #找到最大輪廓 find the largest contour
+        max_area, max_contour = 0, None
+        for mask_index, _mask in enumerate(mask):
+            _mask = _mask.cpu().numpy().astype(np.uint8)
+            countours, _ = cv2.findContours(_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for countour in countours:
+                area = cv2.contourArea(countour)
+                if area > max_area:
+                    max_area = area
+                    max_contour = countour
+        
+        #找不到輪廓時回傳(0, 0, 0, 0) return (0, 0, 0, 0) when no contour is found
+        if max_contour is None:
+            return (0, 0, 0, 0)
+        
+        #找到外接矩形 find the bounding box
+        x, y, w, h = cv2.boundingRect(max_contour)
+        print(f"MaskToRegion x:{x}, y:{y}, w:{w}, h:{h}")
+
+        #繪製外接矩形 draw the bounding box
+        _h, _w = mask.shape[1], mask.shape[2]
+        image = np.zeros((_h, _w, 3), dtype=np.uint8)
+        cv2.drawContours(image, [max_contour], -1, (255, 255, 255), -1)
+        cv2.rectangle(image, (x, y), (x+w, y+h), (0, 255, 0), 2)
+        image = torch.tensor(image).unsqueeze(0)
+
+        return (w, h, x, y, image)
+
+
 NODE_CLASS_MAPPINGS = {
     "Mask Selection By Index (endman100)": MaskSelectionByIndex,
     "Mask Selection Max Size (endman100)": MaskSelectionMaxSize,
@@ -489,7 +551,8 @@ NODE_CLASS_MAPPINGS = {
     "Mask Sub Mask (endman100)": MaskSubMask,
     "Mask Invert (endman100)": MaskInvert,
     "Fill Mask Area (endman100)": FillMaskArea,
-    "Add Mask (endman100)": AddMask
+    "Add Mask (endman100)": AddMask,
+    "Mask To Region (endman100)": MaskToRegion
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -502,5 +565,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Mask Sub Mask (endman100)": "Mask Sub Mask (endman100)",
     "Mask Invert (endman100)": "Mask Invert (endman100)",
     "Fill Mask Area (endman100)": "Fill Mask Area (endman100)",
-    "Add Mask (endman100)": "Add Mask (endman100)"
+    "Add Mask (endman100)": "Add Mask (endman100)",
+    "Mask To Region (endman100)": "Mask To Region (endman100)"
 }
