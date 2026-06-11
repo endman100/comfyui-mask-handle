@@ -106,6 +106,22 @@ This node inverts the given mask, turning off pixels that were on and vice versa
 ### Outputs
 - mask (MASK): The inverted mask.
 
+## Mask Morphology (endman100)
+
+### Description
+This node applies basic morphology operations to shrink, expand, open, or close mask regions.
+
+### Inputs
+- mask (MASK): The input mask or batch of masks.
+- method: The morphology method to apply. Options are erosion, dilation, open, and close.
+- kernel_shape: The structuring element shape. Options are ellipse, rect, and cross.
+- kernel_size (INT): The size of the structuring element, default is 3.
+- iterations (INT): The number of morphology passes, default is 1.
+- threshold (FLOAT): The mask threshold used before morphology, default is 0.5.
+
+### Outputs
+- mask (MASK): The resulting mask.
+
 ## Fill Mask Area (endman100)
 
 ### Description

@@ -136,6 +136,7 @@ class MaskSelectionMaxCountours:
         return {
             "required": {
                 "mask": ("MASK",),
+                "merge_all": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -144,49 +145,50 @@ class MaskSelectionMaxCountours:
     FUNCTION = "selection"
     CATEGORY = "mask"
 
-    def selection(self, mask):
+    def _largest_contour_mask(self, mask):
+        source_device = mask.device
+        source_dtype = mask.dtype
+        mask_np = (mask.detach().cpu().numpy() > 0.5).astype(np.uint8) * 255
+        countours, _ = cv2.findContours(mask_np, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        max_countour = None
+        max_countour_area = 0
+        for countour in countours:
+            area = cv2.contourArea(countour)
+            if area > max_countour_area:
+                max_countour_area = area
+                max_countour = countour
+
+        if max_countour is None:
+            print("can't find any countour is None")
+            return mask
+
+        h, w = mask.shape[-2], mask.shape[-1]
+        result = np.zeros((h, w), dtype=np.uint8)
+        cv2.drawContours(result, [max_countour], -1, 1, -1)
+        return torch.tensor(result, device=source_device).to(source_dtype)
+
+    def selection(self, mask, merge_all=True):
         if(not isinstance(mask, Iterable)):
             raise ValueError("mask is not iterable", mask.shape, type(mask))
         elif(len(mask) == 0):
             return mask
-        if isinstance(mask, torch.Tensor) and mask.dim() == 3: #batch, h, w
-            max_countour = None
-            max_countour_area = 0
-            for index, _mask in enumerate(mask):
-                _mask = (_mask.cpu().numpy()*255).astype(np.uint8)
-                countours, _ = cv2.findContours(_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                for countour in countours:
-                    area = cv2.contourArea(countour)
-                    if area > max_countour_area:
-                        max_countour_area = area
-                        max_countour = countour
-            if max_countour is None:
-                print("can't find any countour is None")
-                return mask
-
-            h, w = mask.shape[1], mask.shape[2]
-            result = np.zeros((h, w), dtype=np.uint8)
-            cv2.drawContours(result, [max_countour], -1, 255, -1)
-            result = torch.tensor(result).unsqueeze(0)
+        if isinstance(mask, torch.Tensor) and mask.dim() == 2:
+            result = self._largest_contour_mask(mask).unsqueeze(0)
+        elif isinstance(mask, torch.Tensor) and mask.dim() == 3: #batch, h, w
+            if merge_all:
+                merged_mask = torch.any(mask > 0.5, dim=0)
+                result = self._largest_contour_mask(merged_mask.to(mask.dtype)).unsqueeze(0)
+            else:
+                result = torch.stack([self._largest_contour_mask(_mask) for _mask in mask])
         elif isinstance(mask, list): # 判断 mask 是否是数组
-            max_countour = None
-            max_countour_area = 0
-            for index, _mask in enumerate(mask):
-                _mask = (_mask.cpu().numpy()*255).astype(np.uint8)
-                countours, _ = cv2.findContours(_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                for countour in countours:
-                    area = cv2.contourArea(countour)
-                    if area > max_countour_area:
-                        max_countour_area = area
-                        max_countour = countour
-            if max_countour is None:
-                print("can't find any countour is None")
-                return mask
-
-            h, w = mask.shape[1], mask.shape[2]
-            result = np.zeros((h, w), dtype=np.uint8)
-            cv2.drawContours(result, [max_countour], -1, 255, -1)
-            result = torch.tensor(result).unsqueeze(0)
+            if merge_all:
+                original_dtype = mask[0].dtype
+                original_device = mask[0].device
+                merged_mask = torch.stack([_mask > 0.5 for _mask in mask]).any(dim=0)
+                result = self._largest_contour_mask(merged_mask.to(original_dtype).to(original_device)).unsqueeze(0)
+            else:
+                result = [self._largest_contour_mask(_mask) for _mask in mask]
         else:
             raise ValueError("mask is not list or tensor", mask.shape, type(mask))
         return (result,)
@@ -374,6 +376,82 @@ class MaskInvert:
             raise ValueError("mask is not list or tensor", mask.shape, type(mask))
         return (result,)
 
+class MaskMorphology:
+    METHODS = [
+        "erosion",
+        "dilation",
+        "open",
+        "close",
+    ]
+    KERNEL_SHAPES = ["ellipse", "rect", "cross"]
+
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mask": ("MASK",),
+                "method": (cls.METHODS, {"default": "erosion"}),
+                "kernel_shape": (cls.KERNEL_SHAPES, {"default": "ellipse"}),
+                "kernel_size": ("INT", {"default": 3, "min": 1, "max": 255, "step": 2}),
+                "iterations": ("INT", {"default": 1, "min": 1, "max": 64, "step": 1}),
+                "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
+            },
+        }
+
+    RETURN_TYPES = ("MASK",)
+    RETURN_NAMES = ("mask",)
+    FUNCTION = "method"
+    CATEGORY = "mask"
+
+    def _kernel(self, kernel_shape, kernel_size):
+        kernel_size = max(1, int(kernel_size))
+        shape_map = {
+            "ellipse": cv2.MORPH_ELLIPSE,
+            "rect": cv2.MORPH_RECT,
+            "cross": cv2.MORPH_CROSS,
+        }
+        return cv2.getStructuringElement(shape_map[kernel_shape], (kernel_size, kernel_size))
+
+    def _morphology_mask(self, mask, method, kernel_shape, kernel_size, iterations, threshold):
+        source_device = mask.device
+        source_dtype = mask.dtype
+        kernel = self._kernel(kernel_shape, kernel_size)
+        mask_np = (mask.detach().cpu().numpy() > threshold).astype(np.uint8) * 255
+
+        if method == "erosion":
+            result = cv2.erode(mask_np, kernel, iterations=iterations)
+        elif method == "dilation":
+            result = cv2.dilate(mask_np, kernel, iterations=iterations)
+        elif method == "open":
+            result = cv2.morphologyEx(mask_np, cv2.MORPH_OPEN, kernel, iterations=iterations)
+        elif method == "close":
+            result = cv2.morphologyEx(mask_np, cv2.MORPH_CLOSE, kernel, iterations=iterations)
+        else:
+            raise ValueError("unsupported morphology method", method)
+
+        result = (result.astype(np.float32) / 255.0).clip(0.0, 1.0)
+        return torch.tensor(result, device=source_device).to(source_dtype)
+
+    def method(self, mask, method="erosion", kernel_shape="ellipse", kernel_size=3, iterations=1, threshold=0.5):
+        if isinstance(mask, torch.Tensor) and mask.dim() == 2:
+            result = self._morphology_mask(mask, method, kernel_shape, kernel_size, iterations, threshold).unsqueeze(0)
+        elif isinstance(mask, torch.Tensor) and mask.dim() == 3:
+            result = torch.stack([
+                self._morphology_mask(_mask, method, kernel_shape, kernel_size, iterations, threshold)
+                for _mask in mask
+            ])
+        elif isinstance(mask, list):
+            result = [
+                self._morphology_mask(_mask, method, kernel_shape, kernel_size, iterations, threshold)
+                for _mask in mask
+            ]
+        else:
+            raise ValueError("mask is not list or tensor", mask.shape, type(mask))
+        return (result,)
+
 class FillMaskArea:
     def __init__(self):
         pass
@@ -550,6 +628,7 @@ NODE_CLASS_MAPPINGS = {
     "Mask And Mask (endman100)": MaskAndMask,
     "Mask Sub Mask (endman100)": MaskSubMask,
     "Mask Invert (endman100)": MaskInvert,
+    "Mask Morphology (endman100)": MaskMorphology,
     "Fill Mask Area (endman100)": FillMaskArea,
     "Add Mask (endman100)": AddMask,
     "Mask To Region (endman100)": MaskToRegion
@@ -564,6 +643,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Mask And Mask (endman100)": "Mask And Mask (endman100)",
     "Mask Sub Mask (endman100)": "Mask Sub Mask (endman100)",
     "Mask Invert (endman100)": "Mask Invert (endman100)",
+    "Mask Morphology (endman100)": "Mask Morphology (endman100)",
     "Fill Mask Area (endman100)": "Fill Mask Area (endman100)",
     "Add Mask (endman100)": "Add Mask (endman100)",
     "Mask To Region (endman100)": "Mask To Region (endman100)"
