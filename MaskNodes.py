@@ -1,6 +1,7 @@
 import os
 import cv2
 import torch
+import torch.nn.functional as F
 import shutil
 from datetime import datetime
 import numpy as np
@@ -558,10 +559,33 @@ class ImageMaskBlendBackground:
             raise ValueError("masks must have shape [B,H,W], [H,W], or [B,H,W,1]", masks.shape)
         return masks
 
+    def _cover_resize_crop(self, background_images, target_h, target_w):
+        bg_h, bg_w = background_images.shape[1], background_images.shape[2]
+        if bg_h == target_h and bg_w == target_w:
+            return background_images
+
+        scale = max(target_h / bg_h, target_w / bg_w)
+        resized_h = max(target_h, int(np.ceil(bg_h * scale)))
+        resized_w = max(target_w, int(np.ceil(bg_w * scale)))
+
+        background_images = background_images.permute(0, 3, 1, 2)
+        background_images = F.interpolate(
+            background_images,
+            size=(resized_h, resized_w),
+            mode="bilinear",
+            align_corners=False,
+        )
+
+        crop_y = max(0, (resized_h - target_h) // 2)
+        crop_x = max(0, (resized_w - target_w) // 2)
+        background_images = background_images[:, :, crop_y:crop_y + target_h, crop_x:crop_x + target_w]
+        return background_images.permute(0, 2, 3, 1)
+
     def method(self, images, masks, background_images, invert_mask=False):
         images = self._normalize_images(images, "images")
         background_images = self._normalize_images(background_images, "background_images")
         masks = self._normalize_masks(masks).to(device=images.device, dtype=images.dtype)
+        background_images = background_images.to(device=images.device, dtype=images.dtype)
 
         image_count = images.shape[0]
         mask_count = masks.shape[0]
@@ -573,19 +597,18 @@ class ImageMaskBlendBackground:
             raise ValueError("background_images length must be 1 or match images length", background_count, image_count)
         if images.shape[1:3] != masks.shape[1:3]:
             raise ValueError("images and masks size must match", images.shape, masks.shape)
-        if images.shape[1:3] != background_images.shape[1:3]:
-            raise ValueError("images and background_images size must match", images.shape, background_images.shape)
         if images.shape[-1] != background_images.shape[-1]:
             raise ValueError("images and background_images channel count must match", images.shape, background_images.shape)
 
         if background_count == 1 and image_count > 1:
             background_images = background_images.repeat(image_count, 1, 1, 1)
+        background_images = self._cover_resize_crop(background_images, images.shape[1], images.shape[2])
 
         masks = masks.clamp(0.0, 1.0)
         if invert_mask:
             masks = 1.0 - masks
 
-        result = images * (1.0 - masks) + background_images.to(device=images.device, dtype=images.dtype) * masks
+        result = images * (1.0 - masks) + background_images * masks
         return (result,)
     
 class AddMask():
