@@ -508,6 +508,85 @@ class FillMaskArea:
             _mask = _mask.repeat(1, 1, 3)
             image[index] = image[index] * _mask  + base_color * (1 - _mask)
         return (image,)
+
+class ImageMaskBlendBackground:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "masks": ("MASK",),
+                "background_images": ("IMAGE",),
+                "invert_mask": ("BOOLEAN", {"default": False}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
+    FUNCTION = "method"
+    CATEGORY = "mask"
+
+    def _normalize_images(self, images, name):
+        if not isinstance(images, torch.Tensor):
+            raise ValueError(f"{name} must be IMAGE tensor", type(images))
+        images = images.clone()
+        if images.dim() == 3:
+            images = images.unsqueeze(0)
+        if images.dim() != 4:
+            raise ValueError(f"{name} must have shape [B,H,W,C] or [H,W,C]", images.shape)
+        return images
+
+    def _normalize_masks(self, masks):
+        if isinstance(masks, torch.Tensor):
+            masks = masks.clone()
+        elif isinstance(masks, list):
+            masks = torch.stack([m.clone() for m in masks])
+        else:
+            raise ValueError("masks must be MASK tensor or list", type(masks))
+
+        if masks.dim() == 2:
+            masks = masks.unsqueeze(0)
+        if masks.dim() == 3:
+            if masks.shape[-1] == 1:
+                masks = masks.unsqueeze(0)
+            else:
+                masks = masks.unsqueeze(-1)
+        if masks.dim() != 4 or masks.shape[-1] != 1:
+            raise ValueError("masks must have shape [B,H,W], [H,W], or [B,H,W,1]", masks.shape)
+        return masks
+
+    def method(self, images, masks, background_images, invert_mask=False):
+        images = self._normalize_images(images, "images")
+        background_images = self._normalize_images(background_images, "background_images")
+        masks = self._normalize_masks(masks).to(device=images.device, dtype=images.dtype)
+
+        image_count = images.shape[0]
+        mask_count = masks.shape[0]
+        background_count = background_images.shape[0]
+
+        if image_count != mask_count:
+            raise ValueError("images and masks length must match", image_count, mask_count)
+        if background_count not in (1, image_count):
+            raise ValueError("background_images length must be 1 or match images length", background_count, image_count)
+        if images.shape[1:3] != masks.shape[1:3]:
+            raise ValueError("images and masks size must match", images.shape, masks.shape)
+        if images.shape[1:3] != background_images.shape[1:3]:
+            raise ValueError("images and background_images size must match", images.shape, background_images.shape)
+        if images.shape[-1] != background_images.shape[-1]:
+            raise ValueError("images and background_images channel count must match", images.shape, background_images.shape)
+
+        if background_count == 1 and image_count > 1:
+            background_images = background_images.repeat(image_count, 1, 1, 1)
+
+        masks = masks.clamp(0.0, 1.0)
+        if invert_mask:
+            masks = 1.0 - masks
+
+        result = images * (1.0 - masks) + background_images.to(device=images.device, dtype=images.dtype) * masks
+        return (result,)
     
 class AddMask():
     def __init__(self):
@@ -630,6 +709,7 @@ NODE_CLASS_MAPPINGS = {
     "Mask Invert (endman100)": MaskInvert,
     "Mask Morphology (endman100)": MaskMorphology,
     "Fill Mask Area (endman100)": FillMaskArea,
+    "Blend Background (endman100)": ImageMaskBlendBackground,
     "Add Mask (endman100)": AddMask,
     "Mask To Region (endman100)": MaskToRegion
 }
@@ -645,6 +725,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Mask Invert (endman100)": "Mask Invert (endman100)",
     "Mask Morphology (endman100)": "Mask Morphology (endman100)",
     "Fill Mask Area (endman100)": "Fill Mask Area (endman100)",
+    "Blend Background (endman100)": "Blend Background (endman100)",
     "Add Mask (endman100)": "Add Mask (endman100)",
     "Mask To Region (endman100)": "Mask To Region (endman100)"
 }
