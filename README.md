@@ -19,6 +19,7 @@ This node selects a specific mask from a batch of masks based on the provided in
 ### Inputs
 - mask (MASK): A batch of masks, which can be a list of masks or a tensor with a batch dimension.
 - index (INT): The index of the mask to select, default is 0, range is 0 to 99.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
 
 ### Outputs
 - mask (MASK): The selected mask from the batch.
@@ -30,6 +31,7 @@ This node selects the mask with the largest area (sum of pixel values) from a ba
 
 ### Inputs
 - mask (MASK): A batch of masks.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
 
 ### Outputs
 - mask (MASK): The mask with the largest area.
@@ -41,6 +43,7 @@ This node selects the mask with the smallest area (sum of pixel values) from a b
 
 ### Inputs
 - mask (MASK): A batch of masks.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
 
 ### Outputs
 - mask (MASK): The mask with the smallest area.
@@ -52,6 +55,7 @@ This node finds the contour with the largest area across all provided masks and 
 
 ### Inputs
 - mask (MASK): A batch of masks.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
 
 ### Outputs
 - mask (MASK): A new mask containing only the largest contour found across all input masks.
@@ -65,6 +69,7 @@ This node performs a logical OR operation on two masks. If merge_all is True, it
 - mask1 (MASK): The first mask or batch of masks.
 - mask2 (MASK): The second mask or batch of masks.
 - merge_all (BOOLEAN): If True, merges all masks across the batch via an OR operation, default is False.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
 
 ### Outputs
 - mask (MASK): The result of the OR operation between mask1 and mask2, or a merged result if merge_all is True.
@@ -78,6 +83,7 @@ This node performs a logical AND operation on two masks. If merge_all is True, i
 - mask1 (MASK): The first mask or batch of masks.
 - mask2 (MASK): The second mask or batch of masks.
 - merge_all (BOOLEAN): If True, merges all masks across the batch via an AND operation, default is False.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
 
 ### Outputs
 - mask (MASK): The result of the AND operation between mask1 and mask2, or a merged result if merge_all is True.
@@ -91,6 +97,7 @@ This node performs a logical AND operation between the first mask and the invers
 - mask1 (MASK): The first mask or batch of masks.
 - mask2 (MASK): The second mask or batch of masks to subtract from mask1.
 - merge_all (BOOLEAN): If True, merges all masks across the batch via the appropriate operation, default is False.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
 
 ### Outputs
 - mask (MASK): The result of subtracting mask2 from mask1, or a merged result if merge_all is True.
@@ -102,9 +109,24 @@ This node inverts the given mask, turning off pixels that were on and vice versa
 
 ### Inputs
 - mask (MASK): The mask to invert.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
 
 ### Outputs
 - mask (MASK): The inverted mask.
+
+## Mask Repeat (endman100)
+
+### Description
+This node repeats a mask or mask batch along the batch/frame dimension. It can repeat the full sequence, or repeat each item next to itself.
+
+### Inputs
+- mask (MASK): The input mask or batch of masks.
+- repeat_count (INT): The number of times to repeat the mask, default is 1.
+- mode: The repeat mode. `repeat_all` repeats the full batch order, and `repeat_each` repeats each mask before moving to the next one.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
+
+### Outputs
+- mask (MASK): The repeated mask batch.
 
 ## Mask Morphology (endman100)
 
@@ -118,9 +140,42 @@ This node applies basic morphology operations to shrink, expand, open, or close 
 - kernel_size (INT): The size of the structuring element, default is 3.
 - iterations (INT): The number of morphology passes, default is 1.
 - threshold (FLOAT): The mask threshold used before morphology, default is 0.5.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
 
 ### Outputs
 - mask (MASK): The resulting mask.
+
+## Mask Border (endman100)
+
+### Description
+This node creates a border mask for each frame independently by subtracting the eroded mask from the dilated mask.
+
+### Inputs
+- mask (MASK): The input mask or video mask batch, usually shaped as `[frames, height, width]`.
+- border_size (INT): The border radius in pixels, default is 3.
+- kernel_shape: The structuring element shape. Options are ellipse, rect, and cross.
+- threshold (FLOAT): The mask threshold used before creating the border, default is 0.5.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
+
+### Outputs
+- mask (MASK): The per-frame border mask.
+
+## Mask Temporal Smooth (endman100)
+
+### Description
+This node stabilizes video masks across neighboring frames with a centered sliding window. It keeps the same number of output frames as the input.
+
+### Inputs
+- mask (MASK): The input video mask batch, usually shaped as `[frames, height, width]`.
+- method: The temporal method to apply. Options are `vote`, `or`, and `and`.
+- window_size (INT): The number of frames in the sliding window, default is 5. Odd values are recommended.
+- kernel_size (INT): The spatial neighborhood size used together with the temporal window, default is 1.
+- mask_threshold (FLOAT): The threshold used to convert the input mask to binary before stabilization, default is 0.5.
+- use_gpu (BOOLEAN): If True, forces this node's smoothing calculation to run on CUDA, default is False.
+- mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
+
+### Outputs
+- mask (MASK): The stabilized mask sequence.
 
 ## Fill Mask Area (endman100)
 
