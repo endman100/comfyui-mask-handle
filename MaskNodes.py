@@ -621,8 +621,6 @@ class MaskMorphology:
 
 
 class MaskFrameBorder:
-    KERNEL_SHAPES = ["ellipse", "rect", "cross"]
-
     def __init__(self):
         pass
 
@@ -631,8 +629,8 @@ class MaskFrameBorder:
         return {
             "required": {
                 "mask": ("MASK",),
-                "border_size": ("INT", {"default": 3, "min": 1, "max": 128, "step": 1}),
-                "kernel_shape": (cls.KERNEL_SHAPES, {"default": "ellipse"}),
+                "dilate_size": ("INT", {"default": 3, "min": 0, "max": 128, "step": 1}),
+                "erode_size": ("INT", {"default": 3, "min": 0, "max": 128, "step": 1}),
                 "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "mask_inverse": ("BOOLEAN", {"default": False}),
             },
@@ -643,40 +641,36 @@ class MaskFrameBorder:
     FUNCTION = "method"
     CATEGORY = "mask"
 
-    def _kernel(self, kernel_shape, border_size):
-        border_size = max(1, int(border_size))
-        kernel_size = border_size * 2 + 1
-        shape_map = {
-            "ellipse": cv2.MORPH_ELLIPSE,
-            "rect": cv2.MORPH_RECT,
-            "cross": cv2.MORPH_CROSS,
-        }
-        return cv2.getStructuringElement(shape_map[kernel_shape], (kernel_size, kernel_size))
+    def _kernel(self, size):
+        size = max(0, int(size))
+        kernel_size = size * 2 + 1
+        return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
 
-    def _border_mask(self, mask, border_size, kernel_shape, threshold):
+    def _border_mask(self, mask, dilate_size, erode_size, threshold):
         source_device = mask.device
         source_dtype = mask.dtype
-        kernel = self._kernel(kernel_shape, border_size)
+        dilate_kernel = self._kernel(dilate_size)
+        erode_kernel = self._kernel(erode_size)
         mask_np = (mask.detach().cpu().numpy() > threshold).astype(np.uint8) * 255
 
-        dilated = cv2.dilate(mask_np, kernel, iterations=1)
-        eroded = cv2.erode(mask_np, kernel, iterations=1)
+        dilated = cv2.dilate(mask_np, dilate_kernel, iterations=1)
+        eroded = cv2.erode(mask_np, erode_kernel, iterations=1)
         result = cv2.subtract(dilated, eroded)
 
         result = (result.astype(np.float32) / 255.0).clip(0.0, 1.0)
         return torch.tensor(result, device=source_device).to(source_dtype)
 
-    def method(self, mask, border_size=3, kernel_shape="ellipse", threshold=0.5, mask_inverse=False):
+    def method(self, mask, dilate_size=3, erode_size=3, threshold=0.5, mask_inverse=False):
         if isinstance(mask, torch.Tensor) and mask.dim() == 2:
-            result = self._border_mask(mask, border_size, kernel_shape, threshold).unsqueeze(0)
+            result = self._border_mask(mask, dilate_size, erode_size, threshold).unsqueeze(0)
         elif isinstance(mask, torch.Tensor) and mask.dim() == 3:
             result = torch.stack([
-                self._border_mask(_mask, border_size, kernel_shape, threshold)
+                self._border_mask(_mask, dilate_size, erode_size, threshold)
                 for _mask in mask
             ])
         elif isinstance(mask, list):
             result = [
-                self._border_mask(_mask, border_size, kernel_shape, threshold)
+                self._border_mask(_mask, dilate_size, erode_size, threshold)
                 for _mask in mask
             ]
         else:

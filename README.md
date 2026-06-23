@@ -152,8 +152,8 @@ This node creates a border mask for each frame independently by subtracting the 
 
 ### Inputs
 - mask (MASK): The input mask or video mask batch, usually shaped as `[frames, height, width]`.
-- border_size (INT): The border radius in pixels, default is 3.
-- kernel_shape: The structuring element shape. Options are ellipse, rect, and cross.
+- dilate_size (INT): The dilation radius in pixels, default is 3. Set to 0 to skip expansion.
+- erode_size (INT): The erosion radius in pixels, default is 3. Set to 0 to skip shrinking.
 - threshold (FLOAT): The mask threshold used before creating the border, default is 0.5.
 - mask_inverse (BOOLEAN): If True, inverts the output mask, default is False.
 
